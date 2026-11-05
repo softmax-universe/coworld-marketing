@@ -9,7 +9,7 @@ import os
 import re
 import statistics
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from importlib import resources
@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
+from marketing import __version__
 from marketing.config import JudgeConfig, Limits
 from marketing.entry import Entry, MediaItem, count_hashtags, count_links, weighted_length
 from marketing.probe import Measurement
@@ -309,8 +311,9 @@ class CraftReview:
 class ModelClient:
     """OpenAI-chat-shaped client. Hosted: the Coworld LLM sidecar. Local: an OpenRouter-compatible endpoint + key."""
 
-    def __init__(self, cfg: JudgeConfig) -> None:
+    def __init__(self, cfg: JudgeConfig, *, on_call: Callable[[dict[str, Any]], None] | None = None) -> None:
         self.cfg = cfg
+        self.on_call = on_call
         sidecar = os.environ.get("COWORLD_LLM_ENDPOINT", "").rstrip("/")
         if sidecar:
             self.base = f"{sidecar}/v1/chat/completions"
@@ -334,23 +337,61 @@ class ModelClient:
     # the model's own nondeterminism, which is still several readings.
     supports_temperature: bool = True
 
-    def complete(self, messages: list[dict[str, Any]], *, slot: int | None, temperature: float = 0.2) -> str:
+    def _record_call(
+        self,
+        body: dict[str, Any],
+        slot: int | None,
+        started: float,
+        status: int | None,
+        headers: Any,
+        raw: bytes | None,
+        complete: bool,
+    ) -> None:
+        if self.on_call is None:
+            return
+        pairs = [[key, value] for key, value in headers.items()] if headers is not None else []
+        identities = [value for key, value in pairs if key.lower() == "x-softmax-llm-call-id"]
+        self.on_call(
+            {
+                "attempt_id": str(uuid4()),
+                "platform_call_id": identities[0] if len(identities) == 1 else None,
+                "slot": slot,
+                "request": body,
+                "http_status": status,
+                "response_header_pairs": pairs,
+                "raw_response": raw.decode("utf-8", errors="replace") if raw is not None else None,
+                "response_body_b64": base64.b64encode(raw).decode() if raw is not None else None,
+                "response_complete": complete,
+                "response_reader_joined": complete,
+                "latency_ms": (time.monotonic() - started) * 1000,
+            }
+        )
+
+    def complete(self, messages: list[dict[str, Any]], *, slot: int | None, temperature: float | None = 0.2) -> str:
         body: dict[str, Any] = {"model": self.model, "messages": messages, "max_tokens": self.cfg.max_tokens}
-        if self.supports_temperature:
+        if self.supports_temperature and temperature is not None:
             body["temperature"] = temperature
-        headers = {"Content-Type": "application/json", "User-Agent": "coworld-marketing/0.3.3"}
+        headers = {"Content-Type": "application/json", "User-Agent": f"coworld-marketing/{__version__}"}
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"
         if slot is not None and self.source == "sidecar":
             headers["X-Coworld-Player-Slot"] = str(slot)
         request = Request(self.base, data=json.dumps(body).encode(), headers=headers, method="POST")
+        started = time.monotonic()
+        response_headers, status = None, None
         try:
             with urlopen(request, timeout=self.cfg.timeout_seconds) as response:
-                payload = json.loads(response.read())
+                response_headers, status = getattr(response, "headers", None), getattr(response, "status", None)
+                raw = response.read()
         except HTTPError as error:
-            detail = ""
-            with suppress(Exception):
-                detail = error.read().decode(errors="replace")
+            raw, complete = None, False
+            try:
+                raw = error.read()
+                complete = True
+            except Exception:
+                pass
+            self._record_call(body, slot, started, error.code, error.headers, raw, complete)
+            detail = raw.decode(errors="replace") if raw is not None else ""
             if (
                 self.supports_temperature
                 and "temperature" in body
@@ -363,6 +404,14 @@ class ModelClient:
                 self.supports_temperature = False
                 return self.complete(messages, slot=slot, temperature=temperature)
             raise
+        except Exception as error:
+            partial = getattr(error, "partial", None)
+            self._record_call(
+                body, slot, started, status, response_headers, partial if isinstance(partial, bytes) else None, False
+            )
+            raise
+        self._record_call(body, slot, started, status, response_headers, raw, True)
+        payload = json.loads(raw)
         choice = payload["choices"][0]
         if choice.get("finish_reason") == "error":
             raise RuntimeError("model returned finish_reason=error")
