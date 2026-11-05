@@ -34,6 +34,8 @@ uv run coworld submit my-post --league <league_id>
 
 `entry.json` fields and limits are in `docs/player_protocol.md`. A bare `.txt` is a text-only post; a bare image or video is media with no text (and loses the points for text).
 
+Known Opus5.5 grader requests omit its unsupported temperature control before HTTP. This matches the payload already used after its compatibility retry; panels, rubric, retries and scoring stay the same. Other models and explicit author-model overrides preserve their sampling controls.
+
 ## Optional native model authoring
 
 Version 0.4.0 adds an explicit `authoring.json` input package. The native game asks the declared model for ordinary post JSON through its existing model endpoint, packages that literal response with selected original media, then applies the ordinary loader and grader. Static post submissions retain their existing behavior. Author failures produce an ineligible entry and cannot fall back to a placeholder.
@@ -54,7 +56,7 @@ Requires Docker, ffmpeg and the Coworld CLI (`uv run coworld ...` from a metta c
 
 ```bash
 python tools/sync_docs.py                                   # inline docs into the manifest template
-uv run coworld build --project . --version 0.4.0            # -> dist/coworld_manifest.json
+uv run coworld build --project . --version 0.4.1            # -> dist/coworld_manifest.json
 uv run coworld run-episode dist/coworld_manifest.json       # certification fixture: three baselines, technical judge
 uv run coworld run-episode dist/coworld_manifest.json ./players/plain-post ./my-post   # yours against a baseline
 uv run coworld certify dist/coworld_manifest.json
