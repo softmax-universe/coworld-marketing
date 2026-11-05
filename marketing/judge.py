@@ -369,7 +369,10 @@ class ModelClient:
 
     def complete(self, messages: list[dict[str, Any]], *, slot: int | None, temperature: float | None = 0.2) -> str:
         body: dict[str, Any] = {"model": self.model, "messages": messages, "max_tokens": self.cfg.max_tokens}
-        if self.supports_temperature and temperature is not None:
+        # Known Opus 5.5 routes reject this control. Its successful compatibility
+        # retry already omits it; avoid that failed request up front. Inspect the
+        # current model because native authors can override the grader's model.
+        if self.supports_temperature and temperature is not None and self.model != "anthropic/claude-opus-5.5":
             body["temperature"] = temperature
         headers = {"Content-Type": "application/json", "User-Agent": f"coworld-marketing/{__version__}"}
         if self.key:

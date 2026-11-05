@@ -378,6 +378,7 @@ def test_model_client_drops_temperature_when_the_model_refuses_it(monkeypatch) -
 
     monkeypatch.setenv("JUDGE_API_KEY", "k")
     client = ModelClient(JudgeConfig())
+    client.model = "synthetic-future-model-with-unknown-parameter-support"
     bodies: list[dict] = []
 
     class _Resp:
