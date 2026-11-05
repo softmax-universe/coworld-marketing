@@ -39,9 +39,11 @@ class AuthorSpec(BaseModel):
 
 def system_prompt() -> str:
     try:
-        return resources.files("marketing").joinpath("POLICY_GUIDE.md").read_text(encoding="utf-8")
+        raw = resources.files("marketing").joinpath("POLICY_GUIDE.md").read_text(encoding="utf-8")
     except FileNotFoundError:
-        return (Path(__file__).resolve().parent.parent / "docs/POLICY_GUIDE.md").read_text(encoding="utf-8")
+        raw = (Path(__file__).resolve().parent.parent / "docs/POLICY_GUIDE.md").read_text(encoding="utf-8")
+    _, separator, body = raw.partition("\n---\n")
+    return (body if separator else raw).strip()
 
 
 def digest(path: Path) -> str:

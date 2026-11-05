@@ -162,6 +162,8 @@ async def test_native_author_episode_preserves_literal_bytes_and_private_context
     assert len(record["calls"]) == 1
     call = record["calls"][0]
     assert call["request"]["model"] == "fixture-author" and call["http_status"] == 200
+    raw_guide = (Path(__file__).resolve().parent.parent / "docs/POLICY_GUIDE.md").read_text()
+    assert call["request"]["messages"][0]["content"] == raw_guide.partition("\n---\n")[2].strip()
     assert call["response_complete"] and call["response_reader_joined"]
     assert base64.b64decode(call["response_body_b64"]) == call["raw_response"].encode()
     assert [item for item in sidecar["calls"] if item["body"]["model"] == "fixture-author"][0]["slot"] == "0"
