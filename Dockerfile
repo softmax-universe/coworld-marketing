@@ -10,6 +10,7 @@ RUN apt-get update \
 
 COPY pyproject.toml README.md ./
 COPY marketing ./marketing
+COPY docs/POLICY_GUIDE.md ./docs/POLICY_GUIDE.md
 RUN pip install --no-cache-dir .
 
 CMD ["python", "-m", "marketing.server"]

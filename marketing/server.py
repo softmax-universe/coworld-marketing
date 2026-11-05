@@ -32,6 +32,7 @@ from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi.responses import HTMLResponse
 
 from marketing import __version__
+from marketing.authoring import materialize_author_package
 from marketing.config import GameConfig, MediaKind
 from marketing.engagement import Feed, PostRecord, blend, load_feed, seat_engagement
 from marketing.entry import Entry, EntryMeta, MediaItem, MediaMeta, load_entry, weighted_length
@@ -98,6 +99,7 @@ class Seat:
     end_b64: str = ""
     log_lines: list[str] = field(default_factory=list)
     workdir: Path | None = None
+    authoring: dict[str, Any] = field(default_factory=dict)
 
     def log(self, message: str) -> None:
         self.log_lines.append(f"{time.strftime('%H:%M:%S')} {message}")
@@ -337,6 +339,25 @@ class Runtime:
             seat.content_hash = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
         if not seat.size_bytes:
             seat.size_bytes = path.stat().st_size
+        try:
+            authored = materialize_author_package(
+                path,
+                seat.workdir,
+                slot=seat.slot,
+                grader_config=self.config.judge,
+                capture=seat.authoring,
+                expected_input_digest=seat.content_hash,
+                maximum_input_bytes=self.config.limits.max_file_bytes,
+            )
+            if authored is not None:
+                path = authored.package
+                seat.content_hash = "sha256:" + authored.capture["graded_package_sha256"]
+                seat.size_bytes = path.stat().st_size
+        except Exception as error:
+            seat.authoring.update(status="failed", error_type=type(error).__name__, error=str(error))
+            seat.entry = Entry(EntryMeta(title=seat.name), [], "invalid", ["fatal: native authoring failed"])
+            seat.log("native authoring failed; details retained in the private author capture")
+            return
         seat.entry = load_entry(path, seat.workdir, self.config.limits, default_title=seat.name)
         for problem in seat.entry.problems:
             seat.log(problem)
@@ -542,11 +563,32 @@ class Runtime:
         for seat in self.seats:
             if seat.log_uri:
                 text = "\n".join(seat.log_lines) + "\n"
+                if seat.authoring:
+                    text += "MARKETING_NATIVE_AUTHOR_CAPTURE " + json.dumps(seat.authoring, ensure_ascii=False) + "\n"
                 with suppress(Exception):
                     write_data(seat.log_uri, text, content_type="text/plain")
             if seat.artifact_uri and seat.entry is not None:
                 with suppress(Exception):
                     self._write_artifact(seat)
+        captures = [seat.authoring for seat in self.seats if seat.authoring]
+        trajectory_uri = os.environ.get("COGAME_SAVE_TRAJECTORY_URI")
+        if captures and trajectory_uri:
+            private = {
+                "schema": "marketing-native-authoring-episode/1",
+                "game": "marketing",
+                "game_version": __version__,
+                "runtime_episode_id": os.environ.get("COWORLD_EPISODE_ID") or os.environ.get("COGAME_EPISODE_ID"),
+                "source_revision": os.environ.get("COWORLD_SOURCE_REVISION"),
+                "authors": captures,
+                "results": self.results,
+                "provenance": "Native captures; authenticate engine, job and participant through service receipts",
+            }
+            write_data(
+                trajectory_uri,
+                json.dumps(private, ensure_ascii=False) + "\n",
+                content_type="application/x-ndjson",
+                http_method=artifact_method("COGAME_SAVE_TRAJECTORY_METHOD"),
+            )
         if self.player_status_uri:
             status = {
                 "schema_version": "1",

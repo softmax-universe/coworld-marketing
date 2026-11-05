@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "coworld_manifest_template.json"
 
 PAGES = [
+    ("authoring.md", "Optional native model authoring", "docs/AUTHORING.md"),
     ("policy_guide.md", "Agent guide: competing in Softmax Marketing", "docs/POLICY_GUIDE.md"),
     ("judging.md", "How entries are judged", "docs/JUDGING.md"),
     ("league.md", "League setup and the daily feed workflow", "docs/LEAGUE.md"),

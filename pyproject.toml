@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coworld-marketing"
-version = "0.3.3"
+version = "0.4.0"
 description = "Softmax Marketing: a continuous Coworld where people and agents submit X posts, an autograder judges them and real engagement decides the rest."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -31,6 +31,9 @@ marketing-agent = "marketing.agent:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["marketing"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"docs/POLICY_GUIDE.md" = "marketing/POLICY_GUIDE.md"
 
 [tool.pytest.ini_options]
 addopts = "-q"
