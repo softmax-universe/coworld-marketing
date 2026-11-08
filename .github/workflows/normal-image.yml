@@ -1,0 +1,37 @@
+name: Normal image qualification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: normal-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: docker/setup-buildx-action@v3
+      - name: Build normal image and run the complete installed suite
+        run: python tools/qualify_normal_image.py "$RUNNER_TEMP/marketing-normal-image"
+      - name: Retain exact image, checksums, results and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-normal-image-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/marketing-normal-image/
+          retention-days: 1
+          if-no-files-found: error
