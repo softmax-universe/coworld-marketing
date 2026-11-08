@@ -121,7 +121,11 @@ def main():
                 record.update(returncode=child.returncode, elapsed_seconds=time.monotonic() - begin)
                 save(label + "-duration.json", record)
             if child.returncode:
-                raise RuntimeError((label, (root / (label + ".stderr")).read_text()[-2000:]))
+                # Preserve the complete original failed phase in CI logs even
+                # if a later artifact upload fails.
+                for suffix in (".stdout", ".stderr"):
+                    print((root / (label + suffix)).read_text(), flush=True)
+                raise RuntimeError((label, child.returncode))
 
     assert shutil.disk_usage(root).free >= 6 * 2**30, "Cold normal build requires 6 GiB"
     source_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
@@ -219,6 +223,8 @@ def main():
                 name,
                 "--label",
                 "marketing.qualification=" + suffix,
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
                 "--cpus",
                 "2",
                 "--memory",
