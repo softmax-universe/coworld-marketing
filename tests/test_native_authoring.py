@@ -12,9 +12,11 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from jsonschema import validate
 
 from marketing.authoring import system_prompt, write_generated_package
 from marketing.config import GameConfig
+from marketing.entry import EntryMeta
 from marketing.io import decode_replay_bytes
 from marketing.server import Runtime
 
@@ -31,6 +33,8 @@ def sidecar(monkeypatch):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             state["calls"].append({"body": body, "slot": self.headers.get("X-Coworld-Player-Slot")})
             author = body["model"] == "fixture-author"
+            if author and state["mode"] == "ok" and "response_format" in body:
+                validate(json.loads(state["reply"]), body["response_format"]["json_schema"]["schema"])
             status = 503 if author and state["mode"] == "http-error" else 200
             content = (
                 state["reply"]
@@ -132,8 +136,9 @@ async def episode(tmp_path, monkeypatch, original, *, registered_hash=None):
 
 
 @pytest.mark.parametrize("media_fixture", ["tiny_image", "tiny_video"])
+@pytest.mark.parametrize("bounded", [False, True])
 async def test_native_author_episode_preserves_literal_bytes_and_private_context(
-    request, tmp_path, monkeypatch, sidecar, media_fixture
+    request, tmp_path, monkeypatch, sidecar, media_fixture, bounded
 ):
     media = request.getfixturevalue(media_fixture)
     name = "asset" + media.suffix
@@ -143,16 +148,18 @@ async def test_native_author_episode_preserves_literal_bytes_and_private_context
         "brief": "PRIVATE AUTHOR BRIEF",
         "assets": [{"path": name, "context": "Synthetic QA media"}],
     }
+    if bounded:
+        spec["text_max_ascii_chars"] = 240
     original = package(tmp_path / "input.zip", spec, media)
     before = original.read_bytes()
-    reply = json.dumps(
-        {
-            "schema": "softmax-post-entry/2",
-            "text": "A visible native post, written from the supplied asset.",
-            "media": [{"path": name, "alt_text": "Synthetic QA media"}],
-        },
-        indent=2,
-    )
+    document = {
+        "schema": "softmax-post-entry/2",
+        "text": "A visible native post, written from the supplied asset.",
+        "media": [{"path": name, "alt_text": "Synthetic QA media"}],
+    }
+    if bounded:
+        document.update(title="", thesis="", notes="", credits="", made_with=[])
+    reply = json.dumps(document, indent=2)
     sidecar["reply"] = reply
     runtime = await episode(tmp_path, monkeypatch, original)
     assert runtime.results["eligible"][0]
@@ -162,6 +169,14 @@ async def test_native_author_episode_preserves_literal_bytes_and_private_context
     assert len(record["calls"]) == 1
     call = record["calls"][0]
     assert call["request"]["model"] == "fixture-author" and call["http_status"] == 200
+    if bounded:
+        output = call["request"]["response_format"]
+        assert output["type"] == "json_schema" and output["json_schema"]["strict"]
+        assert output["json_schema"]["schema"]["properties"]["text"]["pattern"] == r"^[ -~\n]{0,240}$"
+        assert "title" in output["json_schema"]["schema"]["properties"]
+    else:
+        assert "response_format" not in call["request"]
+    assert all("response_format" not in x["body"] for x in sidecar["calls"] if x["body"]["model"] != "fixture-author")
     raw_guide = (Path(__file__).resolve().parent.parent / "docs/POLICY_GUIDE.md").read_text()
     assert call["request"]["messages"][0]["content"] == raw_guide.partition("\n---\n")[2].strip()
     assert call["response_complete"] and call["response_reader_joined"]
@@ -183,6 +198,30 @@ async def test_native_author_episode_preserves_literal_bytes_and_private_context
     assert "PRIVATE AUTHOR BRIEF" not in json.dumps(replay)
     assert system_prompt() not in json.dumps(replay)
     assert "MARKETING_NATIVE_AUTHOR_CAPTURE " in (tmp_path / "private-0.log").read_text()
+
+
+@pytest.mark.parametrize("text", ["x" * 241, "A non-ASCII caption: é"])
+async def test_bounded_author_rejects_nonconforming_literal_reply_without_rewrite(
+    tmp_path, monkeypatch, sidecar, tiny_image, text
+):
+    spec = {
+        "schema": "softmax-post-author/1",
+        "model": "fixture-author",
+        "brief": "One bounded post, without an externally supplied caption.",
+        "assets": [{"path": "asset.png"}],
+        "text_max_ascii_chars": 240,
+    }
+    original = package(tmp_path / "input.zip", spec, tiny_image)
+    sidecar["mode"] = "provider-violates-bound"
+    reply = json.dumps(EntryMeta(text=text).model_dump(by_alias=True))
+    sidecar["reply"] = reply
+    runtime = await episode(tmp_path, monkeypatch, original)
+    capture = runtime.seats[0].authoring
+    assert not runtime.results["eligible"][0]
+    assert capture["status"] == "failed" and capture["literal_reply"] == reply
+    assert len(capture["calls"]) == 1 and capture["calls"][0]["http_status"] == 200
+    assert "STATIC FALLBACK MUST NOT RUN" not in runtime.seats[0].entry.meta.text
+    assert not (runtime.seats[0].workdir / "authored-entry.zip").exists()
 
 
 @pytest.mark.parametrize(

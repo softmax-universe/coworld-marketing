@@ -35,6 +35,34 @@ class AuthorSpec(BaseModel):
     max_tokens: int = Field(default=1024, ge=200, le=4000)
     temperature: float | None = Field(default=None, ge=0, le=1.5)
     timeout_seconds: float = Field(default=90, gt=0, le=300)
+    text_max_ascii_chars: int | None = Field(default=None, ge=1, le=240)
+
+
+def bounded_entry_format(maximum: int) -> dict[str, Any]:
+    """Constrain generation without editing the literal response or the ordinary rubric."""
+    schema = EntryMeta.model_json_schema(by_alias=True)
+
+    def portable(node: dict[str, Any]) -> None:
+        for key in ("properties", "$defs"):
+            for child in node.get(key, {}).values():
+                portable(child)
+        if isinstance(node.get("items"), dict):
+            portable(node["items"])
+        for key in ("anyOf", "oneOf", "allOf"):
+            for child in node.get(key, []):
+                portable(child)
+        # Use a common structural subset. Original parser validators still
+        # enforce their bounds; the text pattern carries this policy's cap.
+        for key in ("title", "description", "default", "minLength", "maxLength", "minItems", "maxItems"):
+            node.pop(key, None)
+        if node.get("type") == "object":
+            node["required"] = list(node["properties"])
+            node["additionalProperties"] = False
+
+    portable(schema)
+    schema["properties"]["schema"] = {"type": "string", "const": ENTRY_SCHEMA}
+    schema["properties"]["text"]["pattern"] = rf"^[ -~\n]{{0,{maximum}}}$"
+    return {"type": "json_schema", "json_schema": {"name": "softmax_post_entry", "strict": True, "schema": schema}}
 
 
 def system_prompt() -> str:
@@ -63,11 +91,20 @@ def asset_path(root: Path, name: str) -> Path:
     return path
 
 
-def write_generated_package(reply: str, root: Path, allowed_assets: set[str], output: Path) -> None:
+def write_generated_package(
+    reply: str,
+    root: Path,
+    allowed_assets: set[str],
+    output: Path,
+    *,
+    text_max_ascii_chars: int | None = None,
+) -> None:
     """Preserve literal model JSON and media bytes in a reproducible native ZIP."""
     meta = EntryMeta.model_validate_json(reply)
     if meta.schema_ != ENTRY_SCHEMA:
         raise ValueError("Author response must use the ordinary entry schema")
+    if text_max_ascii_chars is not None and (not meta.text.isascii() or len(meta.text) > text_max_ascii_chars):
+        raise ValueError("Author response violates its declared ASCII text bound")
     paths = [item.path for item in meta.media]
     if len(paths) != len(set(paths)) or not set(paths) <= allowed_assets:
         raise ValueError("Author response selects duplicated or undeclared media")
@@ -163,6 +200,9 @@ def materialize_author_package(
         {"role": "user", "content": json.dumps(user, ensure_ascii=False, sort_keys=True)},
     ]
     body = {"model": spec.model, "messages": messages, "max_tokens": spec.max_tokens}
+    response_format = bounded_entry_format(spec.text_max_ascii_chars) if spec.text_max_ascii_chars is not None else None
+    if response_format is not None:
+        body["response_format"] = response_format
     if spec.temperature is not None:
         body["temperature"] = spec.temperature
     if len(json.dumps(body).encode()) > MAX_REQUEST_BYTES:
@@ -176,7 +216,7 @@ def materialize_author_package(
     client.model = spec.model  # The registered author policy selects its model, independently of the grader.
     if not client.available:
         raise ValueError("Native author endpoint is unavailable; no static fallback is permitted")
-    reply = client.complete(messages, slot=slot, temperature=spec.temperature)
+    reply = client.complete(messages, slot=slot, temperature=spec.temperature, response_format=response_format)
     capture["literal_reply"] = reply
     last = calls[-1]
     if last["http_status"] != 200 or not last["response_complete"] or not last["response_reader_joined"]:
@@ -195,7 +235,7 @@ def materialize_author_package(
     ):
         raise ValueError("Native author response must be literal assistant text without tools")
     output = workdir / "authored-entry.zip"
-    write_generated_package(reply, root, set(names), output)
+    write_generated_package(reply, root, set(names), output, text_max_ascii_chars=spec.text_max_ascii_chars)
     semantic_input = {
         "guide_sha256": hashlib.sha256(guide.encode()).hexdigest(),
         "assets": sorted({item["sha256"] for item in assets}),

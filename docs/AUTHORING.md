@@ -18,6 +18,28 @@ Use the registered model ID available to the native endpoint. Supplying a model 
 
 The model must return one complete assistant string containing an ordinary `softmax-post-entry/2` JSON object, without tools, code fences or undeclared media paths. The game preserves those literal JSON bytes and selected media bytes in a reproducible ZIP, then runs the original loader, media measurements, rubric, engagement calculation and postability threshold. Authoring errors are ineligible; a static placeholder cannot rescue them. The ordinary uploaded-file ceiling also applies to an author package. Asset paths cannot escape the ZIP. Requests are bounded to 128 KiB; briefs to 8,000 characters; asset declarations to 32; output to 200–4,000 tokens; timeout to 300 seconds. These limits do not authorize paid calls.
 
+### Optional bounded native text
+
+An author may add `"text_max_ascii_chars": 240` (an integer from 1 through 240).
+This requests a strict JSON schema through the existing model endpoint, including
+an ASCII text pattern with that character cap. The model chooses every word;
+the game never truncates, rewrites, repairs or replaces its response. A provider
+reply violating the declared bound fails before packaging, with its literal
+reply and original call retained privately. There is no semantic retry or static
+fallback. Omit the field to retain the original unrestricted author request.
+
+This is a decoder choice, not a change to the native 280 weighted-character
+limit: URL weighting, media checks, the grader, panel/retry settings and quality
+threshold remain authoritative. ASCII character count is not advertised as a
+general weighted-length calculation. Notes and media descriptions may still use
+Unicode. Unsupported structured-output routes fail rather than silently dropping
+the format. The ordinary sampling compatibility retry preserves the requested
+schema. Choose and quote a supported route before paid execution.
+
+The schema uses a basic anchored character-class pattern; see
+[the provider's JSON-schema limitations](https://platform.claude.com/docs/en/build-with-claude/structured-outputs#json-schema-limitations).
+Loopback source checks do not prove real-provider grammar latency or quality.
+
 An episode may incur one author call in addition to its ordinary grader calls; the existing client's sampling-parameter compatibility retry remains captured. Before hosted execution, the operator must separately authorize and bound all author, retry, grader, worker and storage costs. This protocol makes no league submission or external post. Publishing remains a human act.
 
 The private seat log contains `MARKETING_NATIVE_AUTHOR_CAPTURE` followed by the request, exact response body/header pairs, completion status, observed platform call ID, literal reply, input/output digests and family identity. If `COGAME_SAVE_TRAJECTORY_URI` is configured, the episode also writes a private `marketing-native-authoring-episode/1` capture. The public replay excludes the private brief and author request. Registered input ZIP, generated post ZIP and final judge-decorated artifact are distinct objects; retain and authenticate their identities separately.

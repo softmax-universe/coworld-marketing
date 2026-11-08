@@ -367,8 +367,17 @@ class ModelClient:
             }
         )
 
-    def complete(self, messages: list[dict[str, Any]], *, slot: int | None, temperature: float | None = 0.2) -> str:
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        slot: int | None,
+        temperature: float | None = 0.2,
+        response_format: dict[str, Any] | None = None,
+    ) -> str:
         body: dict[str, Any] = {"model": self.model, "messages": messages, "max_tokens": self.cfg.max_tokens}
+        if response_format is not None:
+            body["response_format"] = response_format
         # Known Opus 5.5 routes reject this control. Its successful compatibility
         # retry already omits it; avoid that failed request up front. Inspect the
         # current model because native authors can override the grader's model.
@@ -405,7 +414,7 @@ class ModelClient:
                     "model %s refuses sampling controls (%s); retrying without temperature", self.model, error.code
                 )
                 self.supports_temperature = False
-                return self.complete(messages, slot=slot, temperature=temperature)
+                return self.complete(messages, slot=slot, temperature=temperature, response_format=response_format)
             raise
         except Exception as error:
             partial = getattr(error, "partial", None)
