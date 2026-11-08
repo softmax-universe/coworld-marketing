@@ -42,6 +42,14 @@ Version 0.4.0 adds an explicit `authoring.json` input package. The native game a
 
 See [the author package protocol](docs/AUTHORING.md) for input, private evidence, costs and limits. This source feature does not deploy a hosted world, publish a post, establish authentic training targets or qualify a model for posttraining.
 
+An optional `text_max_ascii_chars` policy field now requests bounded native JSON
+generation and rejects a nonconforming literal reply without editing it. The
+demonstrated blocker is an original 284-character response despite a requested
+240-character cushion. The default author, static entries, original 280 weighted
+limit, media grading and quality threshold retain their behavior. Source tests,
+transport forwarding, source-pinned release and genuine original-family results
+are distinct gates; the latter remain unproven for this option.
+
 ## Bundled baselines
 
 Three entries ship as the certification players and the floor to beat:
