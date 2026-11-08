@@ -101,3 +101,15 @@ tools/            build_replay_viewer.sh (static bundle hook), sync_docs.py, lea
 league/           ladder_settings.json
 tests/
 ```
+
+
+The source-owned normal image workflow runs the complete suite against the
+installed package with the unchanged Dockerfile. It bounds the cold build to a
+2GiB/two-CPU builder, tests to1280MiB, and the pipeline to900seconds plus cleanup
+under an independent20minute CI timeout. It verifies copied/installed files,
+package/guide identities, offline test networking and all76cases, then retains
+the exact compressed image, checksums, results and logs as a one-day artifact.
+It performs no registry push, hosted release, real provider call or GPU work.
+Reproduce on a qualified Linux Docker host with
+`python tools/qualify_normal_image.py /absolute/new/output`. Startup requires
+6GiB free disk; runtime retains3GiB disk and2GiB available host RAM.
