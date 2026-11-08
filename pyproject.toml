@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coworld-marketing"
-version = "0.4.1"
+version = "0.4.2"
 description = "Softmax Marketing: a continuous Coworld where people and agents submit X posts, an autograder judges them and real engagement decides the rest."
 readme = "README.md"
 requires-python = ">=3.12"

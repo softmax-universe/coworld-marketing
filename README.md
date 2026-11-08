@@ -64,7 +64,7 @@ Requires Docker, ffmpeg and the Coworld CLI (`uv run coworld ...` from a metta c
 
 ```bash
 python tools/sync_docs.py                                   # inline docs into the manifest template
-uv run coworld build --project . --version 0.4.1            # -> dist/coworld_manifest.json
+uv run coworld build --project . --version 0.4.2            # -> dist/coworld_manifest.json
 uv run coworld run-episode dist/coworld_manifest.json       # certification fixture: three baselines, technical judge
 uv run coworld run-episode dist/coworld_manifest.json ./players/plain-post ./my-post   # yours against a baseline
 uv run coworld certify dist/coworld_manifest.json
