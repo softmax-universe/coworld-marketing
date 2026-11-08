@@ -234,6 +234,8 @@ def main():
                 "--env",
                 "PYTHONDONTWRITEBYTECODE=1",
                 "--env",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
+                "--env",
                 "OPENBLAS_NUM_THREADS=2",
             ]
             if phase == "offline-suite":
